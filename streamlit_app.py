@@ -107,10 +107,11 @@ with st.sidebar:
 
     st.subheader("Property")
     resale_price = st.number_input("Resale HDB Price ($)", value=1_000_000, step=1_000, min_value=100_000, max_value=2_000_000, format="%d")
+    cov = st.number_input("Cash Over Valuation ($)", value=0, step=1_000, min_value=0, max_value=500_000,
+                          help="COV = Resale price minus HDB valuation. Must be paid in cash only (not CPF or loan).", format="%d")
 
-    st.subheader("Loan Type")
-    loan_type = st.radio("Financing", ["HDB Loan", "Bank Loan"], index=1)
-    max_tenure = MAX_TENURE_HDB if loan_type == "HDB Loan" else MAX_TENURE_BANK
+    loan_type = "Bank Loan"
+    max_tenure = MAX_TENURE_BANK
 
     st.subheader("Income & Debts")
     annual_income = st.number_input("Total Annual Income ($)", value=230_000, step=1_000, min_value=0, format="%d")
@@ -119,22 +120,15 @@ with st.sidebar:
     monthly_debts = annual_debts / 12
 
     st.subheader("Loan Parameters")
-    if loan_type == "HDB Loan":
-        interest_rate = st.slider("Interest Rate (% p.a.)", 2.0, 4.0, 2.6, step=0.1, disabled=True) / 100
-        st.caption("HDB loan rate fixed at 2.6% (CPF OA + 0.1%)")
-    else:
-        interest_rate = st.slider("Interest Rate (% p.a.)", 1.0, 6.0, 2.0, step=0.1) / 100
+    interest_rate = st.slider("Interest Rate (% p.a.)", 1.0, 6.0, 2.0, step=0.1) / 100
     loan_tenure = st.slider("Loan Tenure (years)", 5, max_tenure, max_tenure)
 
     st.subheader("Assets")
     cpf_oa_balance = st.number_input("CPF OA Balance ($)", value=200_000, step=1_000, min_value=0, format="%d")
     cash_available = st.number_input("Cash Available ($)", value=250_000, step=1_000, min_value=0, format="%d")
 
-    st.subheader("Grants")
-    total_grants = st.number_input("Total Housing Grants ($)", value=0, step=1_000, min_value=0, max_value=190_000,
-                                   help="Combined CPF Housing Grant + EHG + PHG", format="%d")
-
-effective_price = resale_price - total_grants
+num_buyers = 2
+effective_price = resale_price
 bsd = calculate_bsd(resale_price)
 dp_info = calculate_downpayment(effective_price, loan_type)
 
@@ -149,42 +143,72 @@ total_repayment = monthly_repayment * loan_tenure * 12
 total_interest = total_repayment - loan_amount
 
 with tab_calculator:
-    st.subheader("Key Metrics")
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Loan Amount", f"${loan_amount:,.0f}")
-    c2.metric("Monthly Repayment", f"${monthly_repayment:,.0f}")
-    c3.metric("Total Interest Paid", f"${total_interest:,.0f}")
+    st.subheader("Purchase Price")
+    st.metric("Resale HDB Price", f"${resale_price:,.0f}")
+
 
     st.markdown("---")
     st.subheader("Upfront Costs")
 
     cash_for_dp = dp_info["cash_min"]
     cpf_for_dp = dp_info["cpf_max"]
-    total_cash_needed = cash_for_dp + bsd + LEGAL_FEES_ESTIMATE
+    total_upfront_excl_cov = dp_info["total"] + bsd + LEGAL_FEES_ESTIMATE
+    total_upfront = total_upfront_excl_cov + cov
 
-    uc1, uc2, uc3, uc4 = st.columns(4)
-    uc1.metric("Downpayment (25%)", f"${dp_info['total']:,.0f}")
-    uc2.metric("Buyer's Stamp Duty", f"${bsd:,.0f}")
-    uc3.metric("Total Cash Needed", f"${total_cash_needed:,.0f}",
-               delta="OK" if cash_available >= total_cash_needed else "Shortfall",
-               delta_color="normal" if cash_available >= total_cash_needed else "inverse")
-    uc4.metric("CPF OA Needed", f"${cpf_for_dp:,.0f}",
-               delta="OK" if cpf_oa_balance >= cpf_for_dp else "Shortfall",
-               delta_color="normal" if cpf_oa_balance >= cpf_for_dp else "inverse")
+    if loan_type == "Bank Loan":
+        cpf_used = min(cpf_oa_balance, cpf_for_dp + bsd + LEGAL_FEES_ESTIMATE)
+        cash_used = cash_for_dp + max(0, (cpf_for_dp + bsd + LEGAL_FEES_ESTIMATE) - cpf_oa_balance) + cov
+
+    if cov > 0:
+        uc1, uc2, uc3, uc4 = st.columns(4)
+        uc1.metric("Downpayment (25%)", f"${dp_info['total']:,.0f}")
+        uc2.metric("Buyer's Stamp Duty", f"${bsd:,.0f}")
+        uc3.metric("Legal Fees (est.)", f"${LEGAL_FEES_ESTIMATE:,.0f}")
+        uc4.metric("COV (Cash Only)", f"${cov:,.0f}")
+    else:
+        uc1, uc2, uc3 = st.columns(3)
+        uc1.metric("Downpayment (25%)", f"${dp_info['total']:,.0f}")
+        uc2.metric("Buyer's Stamp Duty", f"${bsd:,.0f}")
+        uc3.metric("Legal Fees (est.)", f"${LEGAL_FEES_ESTIMATE:,.0f}")
+
+    st.markdown("**Payment Source** (CPF OA drawn first, then cash)")
+    if cov > 0:
+        st.caption(f"COV of ${cov:,.0f} must be paid in cash — cannot use CPF or loan.")
+    st.caption("Bank loan requires minimum 5% of purchase price in cash for downpayment.")
+
+    ps1, ps2, ps3 = st.columns(3)
+    ps1.metric("From CPF OA", f"${cpf_used:,.0f}",
+               delta=f"Balance: ${cpf_oa_balance - cpf_used:,.0f}" if cpf_oa_balance >= cpf_used else "Insufficient",
+               delta_color="normal" if cpf_oa_balance >= cpf_used else "inverse")
+    ps2.metric("From Cash", f"${cash_used:,.0f}",
+               delta=f"Balance: ${cash_available - cash_used:,.0f}" if cash_available >= cash_used else "Insufficient",
+               delta_color="normal" if cash_available >= cash_used else "inverse")
+    ps3.metric("Total Upfront", f"${total_upfront:,.0f}")
 
     st.markdown("---")
-    st.subheader("Loan Eligibility")
+    st.subheader("Loan")
 
     with st.expander("MSR / TDSR / LTV Breakdown", expanded=False):
         st.markdown(f"""
-| Constraint | Max Loan | Description |
-|------------|----------|-------------|
-| **MSR** | ${max_loan_msr:,.0f} | Monthly mortgage capped at 30% of gross income, stress-tested at 4% |
-| **TDSR** | ${max_loan_tdsr:,.0f} | Total monthly debts (mortgage + others) capped at 55% of gross income |
-| **LTV** | ${max_loan_ltv:,.0f} | Loan cannot exceed 75% of purchase price (or valuation) |
+| Constraint | Max Loan | What it means |
+|------------|----------|---------------|
+| **MSR** | ${max_loan_msr:,.0f} | Mortgage Servicing Ratio: monthly mortgage cannot exceed 30% of gross income (stress-tested at 4%) |
+| **TDSR** | ${max_loan_tdsr:,.0f} | Total Debt Servicing Ratio: all monthly debts cannot exceed 55% of gross income |
+| **LTV** | ${max_loan_ltv:,.0f} | Loan-to-Value: loan cannot exceed 75% of purchase price or valuation |
 """)
         binding = "MSR" if max_loan == max_loan_msr else ("TDSR" if max_loan == max_loan_tdsr else "LTV")
-        st.info(f"Your binding constraint is **{binding}** — max eligible loan: **${max_loan:,.0f}**")
+        st.info(f"Binding constraint: **{binding}** — max eligible loan: **${max_loan:,.0f}**")
+
+    l1, l2, l3 = st.columns(3)
+    l1.metric("Loan Amount", f"${loan_amount:,.0f}")
+    l2.metric("Interest Rate", f"{interest_rate*100:.1f}% p.a.")
+    l3.metric("Duration", f"{loan_tenure} years")
+
+    l4, l5, l6 = st.columns(3)
+    l4.metric("Monthly Repayment", f"${monthly_repayment:,.0f}")
+    l5.metric("Per Person / Month", f"${monthly_repayment / num_buyers:,.0f}",
+              help="Split across 2 buyers")
+    l6.metric("Total Interest Paid", f"${total_interest:,.0f}")
 
     st.markdown("---")
     st.subheader("Repayment Breakdown")
@@ -215,6 +239,51 @@ with tab_calculator:
             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
         )
         st.plotly_chart(fig, use_container_width=True)
+
+    st.markdown("---")
+    st.subheader("Summary Table")
+
+    breakdown_data = {
+        "Item": [
+            "Purchase Price",
+            "",
+            "Downpayment (25%)",
+            "  - From CPF OA",
+            "  - From Cash",
+            "Buyer's Stamp Duty (BSD)",
+            "Legal Fees (est.)",
+            "Cash Over Valuation (COV)",
+            "",
+            "Total Upfront (from CPF OA)",
+            "Total Upfront (from Cash)",
+            "",
+            "Loan Amount (75%)",
+            "Monthly Repayment",
+            "Monthly Per Person (2 buyers)",
+            "Total Repayment (over tenure)",
+            "Total Interest Paid",
+        ],
+        "Amount": [
+            f"${resale_price:,.0f}",
+            "",
+            f"${dp_info['total']:,.0f}",
+            f"${cpf_used:,.0f}",
+            f"${cash_used:,.0f}",
+            f"${bsd:,.0f}",
+            f"${LEGAL_FEES_ESTIMATE:,.0f}",
+            f"${cov:,.0f}",
+            "",
+            f"${cpf_used:,.0f}",
+            f"${cash_used:,.0f}",
+            "",
+            f"${loan_amount:,.0f}",
+            f"${monthly_repayment:,.0f}/mo",
+            f"${monthly_repayment / num_buyers:,.0f}/mo",
+            f"${total_repayment:,.0f}",
+            f"${total_interest:,.0f}",
+        ],
+    }
+    st.table(pd.DataFrame(breakdown_data))
 
 with tab_guide:
     st.header("Guide to Buying a Resale HDB Flat in Singapore")
