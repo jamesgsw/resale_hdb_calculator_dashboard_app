@@ -106,15 +106,15 @@ with st.sidebar:
     st.header("Configuration")
 
     st.subheader("Property")
-    resale_price = st.number_input("Resale HDB Price ($)", value=600_000, step=10_000, min_value=100_000, max_value=2_000_000)
+    resale_price = st.number_input("Resale HDB Price ($)", value=1_000_000, step=1_000, min_value=100_000, max_value=2_000_000, format="%d")
 
     st.subheader("Loan Type")
     loan_type = st.radio("Financing", ["HDB Loan", "Bank Loan"], index=1)
     max_tenure = MAX_TENURE_HDB if loan_type == "HDB Loan" else MAX_TENURE_BANK
 
     st.subheader("Income & Debts")
-    annual_income = st.number_input("Total Annual Income ($)", value=96_000, step=1_000, min_value=0)
-    annual_debts = st.number_input("Total Annual Debt Obligations ($)", value=0, step=1_000, min_value=0)
+    annual_income = st.number_input("Total Annual Income ($)", value=230_000, step=1_000, min_value=0, format="%d")
+    annual_debts = st.number_input("Total Annual Debt Obligations ($)", value=0, step=1_000, min_value=0, format="%d")
     monthly_income = annual_income / 12
     monthly_debts = annual_debts / 12
 
@@ -123,16 +123,16 @@ with st.sidebar:
         interest_rate = st.slider("Interest Rate (% p.a.)", 2.0, 4.0, 2.6, step=0.1, disabled=True) / 100
         st.caption("HDB loan rate fixed at 2.6% (CPF OA + 0.1%)")
     else:
-        interest_rate = st.slider("Interest Rate (% p.a.)", 1.0, 6.0, 4.0, step=0.1) / 100
-    loan_tenure = st.slider("Loan Tenure (years)", 5, max_tenure, min(25, max_tenure))
+        interest_rate = st.slider("Interest Rate (% p.a.)", 1.0, 6.0, 2.0, step=0.1) / 100
+    loan_tenure = st.slider("Loan Tenure (years)", 5, max_tenure, max_tenure)
 
     st.subheader("Assets")
-    cpf_oa_balance = st.number_input("CPF OA Balance ($)", value=100_000, step=10_000, min_value=0)
-    cash_available = st.number_input("Cash Available ($)", value=100_000, step=10_000, min_value=0)
+    cpf_oa_balance = st.number_input("CPF OA Balance ($)", value=200_000, step=1_000, min_value=0, format="%d")
+    cash_available = st.number_input("Cash Available ($)", value=250_000, step=1_000, min_value=0, format="%d")
 
     st.subheader("Grants")
-    total_grants = st.number_input("Total Housing Grants ($)", value=0, step=5_000, min_value=0, max_value=190_000,
-                                   help="Combined CPF Housing Grant + EHG + PHG")
+    total_grants = st.number_input("Total Housing Grants ($)", value=0, step=1_000, min_value=0, max_value=190_000,
+                                   help="Combined CPF Housing Grant + EHG + PHG", format="%d")
 
 effective_price = resale_price - total_grants
 bsd = calculate_bsd(resale_price)
