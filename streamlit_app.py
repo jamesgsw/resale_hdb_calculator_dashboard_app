@@ -73,30 +73,6 @@ def calculate_downpayment(price, loan_type):
         return {"total": total_dp, "cash_min": 0, "cpf_max": total_dp}
 
 
-def generate_amortization_schedule(loan_amount, annual_rate, tenure_years):
-    if loan_amount <= 0 or annual_rate <= 0 or tenure_years <= 0:
-        return pd.DataFrame()
-    r = annual_rate / 12
-    n = tenure_years * 12
-    monthly_payment = calculate_monthly_repayment(loan_amount, annual_rate, tenure_years)
-    balance = loan_amount
-    records = []
-    for month in range(1, n + 1):
-        interest = balance * r
-        principal = monthly_payment - interest
-        balance -= principal
-        if balance < 0:
-            balance = 0
-        records.append({
-            "Month": month,
-            "Year": (month - 1) // 12 + 1,
-            "Principal": principal,
-            "Interest": interest,
-            "Balance": balance,
-        })
-    return pd.DataFrame(records)
-
-
 st.title("HDB Resale Loan Calculator")
 st.caption("Singapore | Simulate loan scenarios for HDB resale flat purchases")
 
@@ -211,34 +187,92 @@ with tab_calculator:
     l6.metric("Total Interest Paid", f"${total_interest:,.0f}")
 
     st.markdown("---")
-    st.subheader("Repayment Breakdown")
+    st.subheader("Downpayment Pay-Off Timeline")
+    st.caption(
+        "A resale HDB is already built, so there is no Progressive Payment Scheme like an EC. "
+        "You pay at transaction milestones over roughly 8-12 weeks; the bank loan only disburses "
+        "at completion, after which monthly repayment begins."
+    )
 
-    amort_df = generate_amortization_schedule(loan_amount, interest_rate, loan_tenure)
+    # The cash deposit is paid in two stages and counts towards the 25% downpayment.
+    # CPF and the remaining cash are only paid at completion. HDB caps the combined
+    # option fee + deposit at $5,000, and it must be paid in cash (not CPF or loan).
+    option_fee = min(1_000, cash_used)
+    deposit_total = min(5_000, cash_used)
+    exercise_fee = deposit_total - option_fee
+    completion_cash = max(0.0, cash_used - deposit_total)
+    completion_cpf = cpf_used
+    completion_total = completion_cash + completion_cpf
 
-    if not amort_df.empty:
-        yearly = amort_df.groupby("Year").agg(
-            Principal=("Principal", "sum"),
-            Interest=("Interest", "sum"),
-        ).reset_index()
+    milestones = [
+        ("Grant of OTP", 0, option_fee, "Cash",
+         "Option Fee paid to the seller to secure the flat (counts towards the downpayment)."),
+        ("Exercise OTP", 3, exercise_fee, "Cash",
+         "Deposit balance paid within 21 days. Option + deposit is capped at $5,000."),
+        ("Completion / Keys", 10, completion_total, "CPF OA + Cash",
+         "Balance of 25% downpayment, BSD, legal fees and COV. Bank loan (75%) disburses to the seller."),
+    ]
 
-        fig = go.Figure()
-        fig.add_trace(go.Bar(
-            x=yearly["Year"], y=yearly["Principal"],
-            name="Principal", marker_color="#1f77b4",
-        ))
-        fig.add_trace(go.Bar(
-            x=yearly["Year"], y=yearly["Interest"],
-            name="Interest", marker_color="#ff7f0e",
-        ))
-        fig.update_layout(
-            barmode="stack",
-            xaxis_title="Year",
-            yaxis_title="Annual Payment ($)",
-            height=380,
-            margin=dict(t=20, b=40),
-            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-        )
-        st.plotly_chart(fig, use_container_width=True)
+    weeks = [m[1] for m in milestones]
+    tick_labels = [m[0] for m in milestones]
+    cumulative = []
+    running = 0.0
+    for _, _, amount, _, _ in milestones:
+        running += amount
+        cumulative.append(running)
+
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=weeks, y=cumulative,
+        mode="lines+markers+text",
+        line=dict(shape="hv", color="#1f77b4", width=3),
+        marker=dict(size=14, color="#1f77b4"),
+        text=[f"${c:,.0f}" for c in cumulative],
+        textposition="top center",
+        hovertext=[f"{label}: +${amount:,.0f} ({src})<br>{desc}"
+                   for label, _, amount, src, desc in milestones],
+        hoverinfo="text",
+        name="Cumulative upfront paid",
+    ))
+    # The bank loan only disburses at completion; mark where monthly repayment begins.
+    fig.add_vline(x=10, line_dash="dash", line_color="#2ca02c")
+    fig.add_annotation(
+        x=10, y=max(cumulative) if cumulative else 0, yshift=38,
+        text="Bank loan disburses -> monthly repayment begins",
+        showarrow=False, font=dict(color="#2ca02c", size=12),
+    )
+    fig.update_layout(
+        xaxis=dict(
+            title="Weeks from securing the flat",
+            tickmode="array", tickvals=weeks, ticktext=tick_labels,
+            range=[-1, 13],
+        ),
+        yaxis_title="Cumulative upfront paid ($)",
+        height=400,
+        margin=dict(t=60, b=40),
+        showlegend=False,
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+    st.markdown("**Milestone breakdown**")
+    milestone_table = pd.DataFrame({
+        "Milestone": ["Grant of OTP", "Exercise OTP", "Completion / Keys", "First Installment"],
+        "When": ["Week 0", "Within 21 days", "~8-12 weeks", "~1 month after completion"],
+        "Payment": [
+            f"${option_fee:,.0f}",
+            f"${exercise_fee:,.0f}",
+            f"${completion_total:,.0f}",
+            f"${monthly_repayment:,.0f}/mo",
+        ],
+        "Source": ["Cash", "Cash", "CPF OA + Cash", "CPF OA / Cash"],
+        "Notes": [
+            "Option Fee to secure the flat (part of downpayment)",
+            "Deposit balance; option + deposit capped at $5,000",
+            "Balance of 25% downpayment + BSD + legal fees + COV; bank loan (75%) disburses",
+            "Mortgage repayment begins after loan disbursement",
+        ],
+    })
+    st.table(milestone_table)
 
     st.markdown("---")
     st.subheader("Summary Table")
