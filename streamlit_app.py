@@ -103,6 +103,16 @@ with st.sidebar:
     cpf_oa_balance = st.number_input("CPF OA Balance ($)", value=200_000, step=1_000, min_value=0, format="%d")
     cash_available = st.number_input("Cash Available ($)", value=250_000, step=1_000, min_value=0, format="%d")
 
+    st.subheader("Purchase Timeline")
+    option_fee_input = st.number_input("Option Fee ($)", value=1_000, step=100, min_value=0, max_value=5_000,
+                                       help="Paid in cash at Grant of OTP to secure the flat. Negotiable, capped within the $5,000 deposit.", format="%d")
+    deposit_total_input = st.number_input("Total Option Deposit ($)", value=5_000, step=100, min_value=0, max_value=5_000,
+                                          help="Combined option fee + exercise deposit. HDB caps this at $5,000, cash only.", format="%d")
+    exercise_weeks = st.slider("Weeks to Exercise OTP", 1, 3, 3,
+                               help="OTP must be exercised within 21 days (3 weeks) of being granted.")
+    completion_weeks = st.slider("Weeks to Completion", 4, 16, 10,
+                                 help="Time from securing the flat to key collection. Typically 8-12 weeks.")
+
 num_buyers = 2
 effective_price = resale_price
 bsd = calculate_bsd(resale_price)
@@ -195,10 +205,11 @@ with tab_calculator:
     )
 
     # The cash deposit is paid in two stages and counts towards the 25% downpayment.
-    # CPF and the remaining cash are only paid at completion. HDB caps the combined
-    # option fee + deposit at $5,000, and it must be paid in cash (not CPF or loan).
-    option_fee = min(1_000, cash_used)
-    deposit_total = min(5_000, cash_used)
+    # CPF and the remaining cash are only paid at completion. The deposit is cash only
+    # (not CPF or loan) and HDB caps the combined option + deposit at $5,000.
+    # All amounts and timings flow from the sidebar inputs, so the chart is fully reactive.
+    deposit_total = min(deposit_total_input, cash_used)
+    option_fee = min(option_fee_input, deposit_total)
     exercise_fee = deposit_total - option_fee
     completion_cash = max(0.0, cash_used - deposit_total)
     completion_cpf = cpf_used
@@ -207,9 +218,9 @@ with tab_calculator:
     milestones = [
         ("Grant of OTP", 0, option_fee, "Cash",
          "Option Fee paid to the seller to secure the flat (counts towards the downpayment)."),
-        ("Exercise OTP", 3, exercise_fee, "Cash",
-         "Deposit balance paid within 21 days. Option + deposit is capped at $5,000."),
-        ("Completion / Keys", 10, completion_total, "CPF OA + Cash",
+        ("Exercise OTP", exercise_weeks, exercise_fee, "Cash",
+         f"Deposit balance paid within 21 days. Option + deposit is capped at ${deposit_total_input:,.0f}."),
+        ("Completion / Keys", completion_weeks, completion_total, "CPF OA + Cash",
          "Balance of 25% downpayment, BSD, legal fees and COV. Bank loan (75%) disburses to the seller."),
     ]
 
@@ -235,9 +246,9 @@ with tab_calculator:
         name="Cumulative upfront paid",
     ))
     # The bank loan only disburses at completion; mark where monthly repayment begins.
-    fig.add_vline(x=10, line_dash="dash", line_color="#2ca02c")
+    fig.add_vline(x=completion_weeks, line_dash="dash", line_color="#2ca02c")
     fig.add_annotation(
-        x=10, y=max(cumulative) if cumulative else 0, yshift=38,
+        x=completion_weeks, y=max(cumulative) if cumulative else 0, yshift=38,
         text="Bank loan disburses -> monthly repayment begins",
         showarrow=False, font=dict(color="#2ca02c", size=12),
     )
@@ -245,7 +256,7 @@ with tab_calculator:
         xaxis=dict(
             title="Weeks from securing the flat",
             tickmode="array", tickvals=weeks, ticktext=tick_labels,
-            range=[-1, 13],
+            range=[-1, completion_weeks + 3],
         ),
         yaxis_title="Cumulative upfront paid ($)",
         height=400,
@@ -257,7 +268,12 @@ with tab_calculator:
     st.markdown("**Milestone breakdown**")
     milestone_table = pd.DataFrame({
         "Milestone": ["Grant of OTP", "Exercise OTP", "Completion / Keys", "First Installment"],
-        "When": ["Week 0", "Within 21 days", "~8-12 weeks", "~1 month after completion"],
+        "When": [
+            "Week 0",
+            f"Week {exercise_weeks} (within 21 days)",
+            f"Week {completion_weeks}",
+            f"~1 month after completion (~Week {completion_weeks + 4})",
+        ],
         "Payment": [
             f"${option_fee:,.0f}",
             f"${exercise_fee:,.0f}",
@@ -267,7 +283,7 @@ with tab_calculator:
         "Source": ["Cash", "Cash", "CPF OA + Cash", "CPF OA / Cash"],
         "Notes": [
             "Option Fee to secure the flat (part of downpayment)",
-            "Deposit balance; option + deposit capped at $5,000",
+            f"Deposit balance; option + deposit capped at ${deposit_total_input:,.0f}",
             "Balance of 25% downpayment + BSD + legal fees + COV; bank loan (75%) disburses",
             "Mortgage repayment begins after loan disbursement",
         ],
