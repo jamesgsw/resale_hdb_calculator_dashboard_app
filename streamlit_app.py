@@ -108,8 +108,6 @@ with st.sidebar:
                                        help="Paid in cash at Grant of OTP to secure the flat. Negotiable, capped within the $5,000 deposit.", format="%d")
     deposit_total_input = st.number_input("Total Option Deposit ($)", value=5_000, step=100, min_value=0, max_value=5_000,
                                           help="Combined option fee + exercise deposit. HDB caps this at $5,000, cash only.", format="%d")
-    exercise_weeks = st.slider("Weeks to Exercise OTP", 1, 3, 3,
-                               help="OTP must be exercised within 21 days (3 weeks) of being granted.")
     completion_weeks = st.slider("Weeks to Completion", 4, 16, 10,
                                  help="Time from securing the flat to key collection. Typically 8-12 weeks.")
 
@@ -207,7 +205,10 @@ with tab_calculator:
     # The cash deposit is paid in two stages and counts towards the 25% downpayment.
     # CPF and the remaining cash are only paid at completion. The deposit is cash only
     # (not CPF or loan) and HDB caps the combined option + deposit at $5,000.
-    # All amounts and timings flow from the sidebar inputs, so the chart is fully reactive.
+    # The exercise window is fixed by HDB at 21 days (3 weeks); option fee, deposit and
+    # completion timing are variable and come from the sidebar, so the chart stays reactive.
+    EXERCISE_WEEKS = 3
+    exercise_weeks = EXERCISE_WEEKS
     deposit_total = min(deposit_total_input, cash_used)
     option_fee = min(option_fee_input, deposit_total)
     exercise_fee = deposit_total - option_fee
